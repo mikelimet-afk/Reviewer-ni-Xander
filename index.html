@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b6b3a">
+<title>Tamaraw Prep – FEUCAT Reviewer (Unofficial)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <button class="brand" data-act="home"><span class="logo">T</span> Tamaraw Prep</button>
+  <nav>
+    <button data-act="history">Progress</button>
+    <button data-act="tips">Tips</button>
+  </nav>
+</header>
+<main id="app"></main>
+<footer class="foot">Unofficial practice reviewer. Not affiliated with or endorsed by Far Eastern University. Scores are saved only on this device.</footer>
+
+<script>
+  window.BANK = []; window.PASSAGES = {};
+  (function () {
+    var n = {};
+    // Q(section, topic, question, [CORRECT, wrong, wrong, wrong], explanation, passageId)
+    // The correct answer is always listed first; the app shuffles the choices.
+    window.Q = function (sec, topic, q, c, exp, p) {
+      var k = sec + '.' + topic; n[k] = (n[k] || 0) + 1;
+      BANK.push({ id: k + '.' + n[k], sec: sec, topic: topic, q: q, c: c, exp: exp, p: p || null });
+    };
+    window.P = function (id, title, text) { PASSAGES[id] = { title: title, text: text }; };
+  })();
+</script>
+<script src="q-english.js"></script>
+<script src="q-math.js"></script>
+<script src="q-science.js"></script>
+<script src="q-reasoning.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
