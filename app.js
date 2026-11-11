@@ -209,7 +209,26 @@ function buildPractice(topic, n) {
 /* ---------- session ---------- */
 var S = null, pending = null, timer = null;
 
-function view(html) { app.innerHTML = html; window.scrollTo(0, 0); }
+function view(html) { app.innerHTML = html; window.scrollTo(0, 0); app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); }
+function celebrate(it) {
+  var ok = app.querySelector('.ch.ok'), bad = app.querySelector('.ch.bad');
+  if (it.chosen !== 0) { if (bad) bad.classList.add('shake'); if (ok) ok.classList.add('reveal'); return; }
+  if (!ok) return;
+  ok.classList.add('pop');
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var colors = ['#f2b705', '#0f8a4b', '#3cc47a', '#ffd95a'];
+  for (var i = 0; i < 14; i++) {
+    var s = document.createElement('span'), ang = Math.random() * Math.PI * 2, dist = 40 + Math.random() * 70;
+    s.className = 'spark';
+    s.style.background = colors[i % colors.length];
+    s.style.setProperty('--x', (10 + Math.random() * 80) + '%');
+    s.style.setProperty('--dx', (Math.cos(ang) * dist).toFixed(0) + 'px');
+    s.style.setProperty('--dy', (Math.sin(ang) * dist - 20).toFixed(0) + 'px');
+    s.style.setProperty('--r', (Math.random() * 360 - 180).toFixed(0) + 'deg');
+    ok.appendChild(s);
+  }
+  setTimeout(function () { var l = ok.querySelectorAll('.spark'); for (var j = 0; j < l.length; j++) l[j].remove(); }, 900);
+}
 function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 function total(sess) { return sess.parts.reduce(function (s, p) { return s + p.qs.length; }, 0); }
 function totalTime(sess) { return sess.parts.reduce(function (s, p) { return s + p.time; }, 0); }
@@ -282,7 +301,8 @@ function choose(k) {
   it.chosen = it.order[k];
   if (S.instant) { it.locked = true; it.time += Date.now() - S.qStart; S.paused = true; }
   renderQ(false);
-  var fb = document.getElementById('fb'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (S.instant) celebrate(it);
+  var fb =document.getElementById('fb'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 function next() {
   if (!S) return;

@@ -115,3 +115,52 @@ details.rv .choices { margin: 10px 0; }
 .stat span { color: var(--muted); font-size: .8rem; }
 .chart { width: 100%; height: auto; }
 ul.tight { padding-left: 20px; margin: 0 0 .8em; } ul.tight li { margin-bottom: 4px; }
+
+/* ---------- decorative vector background ---------- */
+body::before, body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+body::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%230f8a4b' stroke-opacity='.13' stroke-width='1.5'%3E%3Cpath d='M0 200L60 260M-10 120L130 260M140 0L260 120M210 0L260 50'/%3E%3Ccircle cx='52' cy='58' r='22'/%3E%3Cpath d='M186 150l26 44h-52z'/%3E%3Cpath d='M20 160q15-18 30 0t30 0 30 0'/%3E%3Crect x='196' y='30' width='26' height='26' rx='4' transform='rotate(18 209 43)'/%3E%3C/g%3E%3Cg stroke='%23f2b705' stroke-opacity='.3' stroke-width='1.8'%3E%3Cpath d='M118 40v14M111 47h14M232 214v12M226 220h12M30 228v10M25 233h10'/%3E%3Ccircle cx='52' cy='58' r='9'/%3E%3Cpath d='M130 96l40 0M138 106l24 0'/%3E%3Cpath d='M92 196a18 18 0 0 1 36 0'/%3E%3C/g%3E%3Cg fill='%230f8a4b' fill-opacity='.18'%3E%3Ccircle cx='150' cy='60' r='2.5'/%3E%3Ccircle cx='80' cy='120' r='2.5'/%3E%3Ccircle cx='236' cy='130' r='2.5'/%3E%3Ccircle cx='160' cy='232' r='2.5'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 260px 260px;
+  animation: drift 60s linear infinite;
+}
+body::after {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(242,183,5,.16), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(15,138,75,.18), transparent 46%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400' fill='none' stroke='%230f8a4b' stroke-opacity='.16' stroke-width='1.5'%3E%3Ccircle cx='400' cy='0' r='120'/%3E%3Ccircle cx='400' cy='0' r='190'/%3E%3Ccircle cx='400' cy='0' r='260' stroke='%23f2b705' stroke-opacity='.3'/%3E%3Ccircle cx='400' cy='0' r='330'/%3E%3C/svg%3E") top right / min(520px, 90vw) no-repeat;
+}
+@keyframes drift { to { background-position: 260px 260px; } }
+
+/* ---------- animations ---------- */
+#app.enter > * { animation: rise .32s ease-out both; }
+#app.enter > *:nth-child(2) { animation-delay: .04s; }
+#app.enter > *:nth-child(3) { animation-delay: .08s; }
+#app.enter > *:nth-child(n+4) { animation-delay: .12s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.ch { position: relative; transition: transform .12s, border-color .12s, background-color .12s; }
+.ch:not(:disabled):active { transform: scale(.985); }
+.ch.pop { animation: pop .5s ease-out; }
+.ch.pop .lt { animation: tick .5s ease-out; }
+.ch.shake { animation: shake .45s ease-in-out; }
+.ch.reveal { animation: glow .9s ease-out .25s both; }
+@keyframes pop { 0% { transform: scale(1); } 35% { transform: scale(1.035); box-shadow: 0 0 0 8px rgba(26,143,76,.22); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(26,143,76,0); } }
+@keyframes tick { 0% { transform: scale(.4) rotate(-40deg); } 60% { transform: scale(1.25) rotate(8deg); } 100% { transform: none; } }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-9px); } 30% { transform: translateX(8px); } 45% { transform: translateX(-6px); } 60% { transform: translateX(5px); } 75% { transform: translateX(-3px); } 90% { transform: translateX(2px); } }
+@keyframes glow { 0% { box-shadow: 0 0 0 0 rgba(26,143,76,.45); } 100% { box-shadow: 0 0 0 10px rgba(26,143,76,0); } }
+
+.spark { position: absolute; left: var(--x); top: 50%; width: 8px; height: 8px; border-radius: 2px; pointer-events: none; z-index: 3;
+  animation: spark .75s cubic-bezier(.15,.7,.3,1) forwards; }
+@keyframes spark { 0% { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(.3); opacity: 0; } }
+
+.feedback { animation: slide .3s ease-out both; }
+details.rv .feedback { animation: none; }
+@keyframes slide { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.ring { animation: ringin .7s ease-out both; }
+@keyframes ringin { from { transform: scale(.6) rotate(-90deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.bar .tr i { animation: grow .7s ease-out both; transform-origin: left; }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
