@@ -628,7 +628,7 @@ function timeNote(it) {
 function feedbackHtml(it) {
   var ok = it.chosen === 0, letter = LETTERS[it.order.indexOf(0)];
   return '<div class="feedback' + (ok ? '' : ' wrong') + '" id="fb"><b>' + (ok ? '✓ Correct!' : (it.chosen === null ? 'No answer.' : '✗ Not quite.')) + '</b> The correct answer is <b>' + letter + '</b>. ' + timeNote(it) + '<p>' + it.q.exp + '</p>' +
-    (window.FreeLLM ? '<button class="btn sm alt" data-act="aiexplain" data-arg="' + (AI_ITEMS.push(it) - 1) + '">✨ Explain with AI</button>' : '') + '</div>';
+    (window.FreeLLM ? '<button class="btn sm alt ai-only" data-act="aiexplain" data-arg="' + (AI_ITEMS.push(it) - 1) + '">✨ Explain with AI</button>' : '') + '</div>';
 }
 var AI_ITEMS = [];
 function aiExplain(k) {
@@ -756,7 +756,7 @@ function home() {
     '<button class="tile" data-act="assessment"><b>1. Assessment Test</b><span class="muted">Find your level: speed math, reading, abstract reasoning and more. About 45 minutes.</span><br>' + lastPill('assessment') + '</button>' +
     '<button class="tile" data-act="mock"><b>2. Mock Exam</b><span class="muted">Full timed simulation, about 100 items in 95 minutes. New questions each time.</span><br>' + lastPill('mock') + '</button>' +
     '<button class="tile" data-act="practice"><b>3. Practice by Topic</b><span class="muted">Untimed drills with instant explanations. Pick the topic you need.</span></button>' +
-    (window.FreeLLM ? '<button class="tile" data-act="aiopen"><b>✨ AI Tutor (free)</b><span class="muted">Ask any FEUCAT question, get step-by-step help, or generate brand-new practice questions on any topic.</span></button>' : '') +
+    (window.FreeLLM ? '<button class="tile ai-only" data-act="aiopen"><b>✨ AI Tutor (free)</b><span class="muted">Ask any FEUCAT question, get step-by-step help, or generate brand-new practice questions on any topic.</span></button>' : '') +
     '<button class="tile" data-act="mistakes"><b>4. Retry My Mistakes</b><span class="muted">Questions you got wrong come back until you get them right.</span><br><span class="pill ' + (nm ? '' : 'gray') + '">' + nm + ' to review</span></button>' +
     '</div><div class="card">' + levelSlider() + '</div><div class="row"><button class="btn alt" data-act="history">My progress</button><button class="btn alt" data-act="settings">Settings</button><button class="btn alt" data-act="tips">Exam tips &amp; study plan</button></div>');
 }
@@ -821,7 +821,10 @@ function settings() {
     '<div class="pace"><label>Exam length <input type="number" id="set-paceMin" min="5" max="600" value="' + st.paceMin + '"> min</label><label>Items <input type="number" id="set-paceItems" min="5" max="500" value="' + st.paceItems + '"></label><span>= <b id="paceOut">' + secs(practicePace()) + '</b> per question</span></div></div>' +
     '<div class="card"><h2>Background</h2><p class="small muted">Strength of the animated background (the floating tamaraws and shapes). On phones it is automatically shown 25% stronger so it stays visible on small screens.</p>' +
     '<div class="lvl"><div class="lvlhead"><span>Visibility</span><b id="bgOut">' + st.bg + '%</b></div><input type="range" id="set-bg" min="0" max="200" step="10" value="' + st.bg + '" aria-label="Background visibility"></div></div>' +
-    '<div class="card"><h2>✨ AI Tutor</h2><p class="small muted">Free and works with no key (Pollinations.ai). For smarter answers you can add a free Google Gemini, Groq or OpenRouter key; it is saved only on this device.</p><button class="btn sm alt" data-act="aiopen" data-arg="settings">AI settings</button></div>' +
+    (window.FreeLLM ? '<div class="card"><h2>✨ AI Tutor</h2>' +
+    '<label class="opt"><input type="checkbox" id="set-ai"' + (FreeLLM.enabled() ? ' checked' : '') + '><span><b>Turn on the free AI tutor</b><br><span class="muted small">Off by default. When on, an ✨ AI button, a home tile and an “Explain with AI” button under each answer appear. They are hidden automatically while you are offline.</span></span></label>' +
+    '<p class="small muted ai-only">Works free with no key (Pollinations.ai). For smarter answers you can add a free Google Gemini, Groq or OpenRouter key; it is saved only on this device.</p><button class="btn sm alt ai-only" data-act="aiopen" data-arg="settings">AI settings</button>' +
+    (FreeLLM.enabled() ? '<p class="small muted ai-off-only">📴 You are offline, so the AI is hidden for now.</p>' : '') + '</div>' : '') +
     '<button class="btn alt" data-act="home">Back</button>');
 }
 
@@ -926,6 +929,7 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'name') { store.name = e.target.value.trim(); save(); home(); }
   if (e.target.id === 'set-qtimer') { store.settings.qtimer = e.target.checked; save(); }
   if (e.target.id === 'set-debt') { store.settings.debt = e.target.checked; save(); }
+  if (e.target.id === 'set-ai' && window.FreeLLM) { var y = window.scrollY; FreeLLM.setEnabled(e.target.checked); settings(); window.scrollTo(0, y); }
   if (e.target.id === 'file' && e.target.files[0]) {
     var r = new FileReader();
     r.onload = function () {

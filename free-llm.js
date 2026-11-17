@@ -13,6 +13,8 @@
  * API:
  *   FreeLLM.init({ app, title, lang, tutor, practice, explain, starters, topics, fab })
  *   FreeLLM.open('chat' | 'practice' | 'settings')
+ *   FreeLLM.setEnabled(bool) / enabled() / available()               // off by default; hidden while offline
+ *     Mark AI-only page elements with class="ai-only": they are hidden unless the AI is on AND online.
  *   FreeLLM.explain({ question, options, correct, picked, note, ask, shown }) // opens chat with an explanation
  *   FreeLLM.chat(messages, opts) -> Promise<string>                 // raw call
  *   FreeLLM.ask(prompt, system) -> Promise<string>
@@ -34,17 +36,19 @@
 
   var UI = {
     en: { chat: 'Chat', practice: 'Practice', settings: 'AI settings', send: 'Send', ph: 'Ask anything…', thinking: 'Thinking…', close: 'Close', clear: 'New chat',
-      topic: 'Topic', topicPh: 'e.g. past tense, fractions…', gen: 'Generate 5 questions', more: 'More questions', correct: 'Correct!', wrong: 'Not quite. Answer: ',
+      topic: 'Topic', topicPh: 'e.g. past tense, fractions…', gen: 'Generate 4 questions', more: 'More questions', correct: 'Correct!', wrong: 'Not quite. Answer: ',
       prov: 'Provider', key: 'API key', model: 'Model', url: 'Endpoint URL', getKey: 'Get a free key', save: 'Save', test: 'Test', saved: 'Saved.', ok: 'Working: ',
       keyNote: 'Your key stays in this browser and is sent only to the provider above. Leave everything on Pollinations to use AI with no key at all.',
       fail: 'The AI could not be reached. Check your internet connection, or pick another provider in AI settings.', fallback: '(used the free fallback)',
-      disclaimer: 'AI answers can be wrong. Double-check important facts.', score: 'Score', explainQ: 'Explain this question to me.' },
+      disclaimer: 'AI answers can be wrong. Double-check important facts.', score: 'Score', explainQ: 'Explain this question to me.',
+      cut: 'The AI’s answer was cut off or garbled. Tap the button below to try again.' },
     fr: { chat: 'Discussion', practice: 'Exercices', settings: 'Réglages IA', send: 'Envoyer', ph: 'Posez une question…', thinking: 'Réflexion…', close: 'Fermer', clear: 'Nouvelle discussion',
-      topic: 'Thème', topicPh: 'ex. passé composé, la nourriture…', gen: 'Créer 5 questions', more: 'Plus de questions', correct: 'Correct !', wrong: 'Pas tout à fait. Réponse : ',
+      topic: 'Thème', topicPh: 'ex. passé composé, la nourriture…', gen: 'Créer 4 questions', more: 'Plus de questions', correct: 'Correct !', wrong: 'Pas tout à fait. Réponse : ',
       prov: 'Fournisseur', key: 'Clé API', model: 'Modèle', url: 'URL du service', getKey: 'Obtenir une clé gratuite', save: 'Enregistrer', test: 'Tester', saved: 'Enregistré.', ok: 'Ça marche : ',
       keyNote: 'Votre clé reste dans ce navigateur et n’est envoyée qu’au fournisseur choisi. Laissez Pollinations pour utiliser l’IA sans aucune clé.',
       fail: 'Impossible de joindre l’IA. Vérifiez votre connexion ou choisissez un autre fournisseur dans les réglages IA.', fallback: '(secours gratuit utilisé)',
-      disclaimer: 'L’IA peut se tromper. Vérifiez les points importants.', score: 'Score', explainQ: 'Explique-moi cette question.' }
+      disclaimer: 'L’IA peut se tromper. Vérifiez les points importants.', score: 'Score', explainQ: 'Explique-moi cette question.',
+      cut: 'La réponse de l’IA était incomplète. Appuyez sur le bouton ci-dessous pour réessayer.' }
   };
 
   var cfg = { app: 'app', title: 'AI tutor', lang: 'en', tutor: 'You are a friendly, concise tutor.', practice: '', explain: '', starters: [], topics: [], fab: true };
@@ -56,7 +60,7 @@
     try { s = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) {}
     s = s && typeof s === 'object' ? s : {};
     if (!PROVIDERS[s.provider]) s.provider = 'pollinations';
-    s.keys = s.keys || {}; s.models = s.models || {}; s.urls = s.urls || {};
+    s.keys = s.keys || {}; s.models = s.models || {}; s.urls = s.urls || {}; s.on = s.on || {};
     return s;
   }
   function saveSettings(s) { try { localStorage.setItem(SKEY, JSON.stringify(s)); } catch (e) {} }
@@ -88,6 +92,7 @@
     if (key) headers.Authorization = 'Bearer ' + key;
     if (id === 'openrouter') { headers['HTTP-Referer'] = location.origin; headers['X-Title'] = cfg.title; }
     var body = { model: model, messages: messages, temperature: opts.temperature == null ? 0.7 : opts.temperature };
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
     if (id === 'pollinations') { body.private = true; body.referrer = cfg.app; }
     return post(url, headers, body).catch(function (e) {
       if (id !== 'pollinations') throw e;
@@ -111,8 +116,27 @@
   function ask(prompt, system) {
     return chat([{ role: 'system', content: system || cfg.tutor }, { role: 'user', content: prompt }]);
   }
+  // Pulls every complete {...} object out of text, even when the whole reply was cut off mid-way.
+  function objects(txt) {
+    var out = [], depth = 0, start = -1, str = false, escd = false;
+    for (var i = 0; i < txt.length; i++) {
+      var c = txt[i];
+      if (str) { if (escd) escd = false; else if (c === '\\') escd = true; else if (c === '"') str = false; continue; }
+      if (c === '"') str = true;
+      else if (c === '{') { if (depth === 0 || depth === 1) start = i; depth++; }
+      else if (c === '}') { depth--; if (start >= 0 && depth <= 1) { try { out.push(JSON.parse(txt.slice(start, i + 1))); } catch (e) {} start = -1; } }
+    }
+    return out;
+  }
   function parseJSON(txt) {
     txt = String(txt).replace(/```(?:json)?/gi, '');
+    try { return strictJSON(txt); } catch (e) {
+      var objs = objects(txt).filter(function (o) { return o && o.q && o.options; });
+      if (objs.length) return { questions: objs };
+      throw e;
+    }
+  }
+  function strictJSON(txt) {
     var a = txt.indexOf('{'), b = txt.lastIndexOf('}');
     var a2 = txt.indexOf('['), b2 = txt.lastIndexOf(']');
     if (a2 >= 0 && (a < 0 || a2 < a)) { a = a2; b = b2; }
@@ -121,7 +145,8 @@
   }
   function json(prompt, system) {
     var sys = (system || cfg.tutor) + '\nReply with valid JSON only. No markdown, no commentary.';
-    return chat([{ role: 'system', content: sys }, { role: 'user', content: prompt }], { temperature: 0.8 }).then(parseJSON);
+    var go = function () { return chat([{ role: 'system', content: sys }, { role: 'user', content: prompt }], { temperature: 0.8, maxTokens: 3000 }).then(parseJSON); };
+    return go().catch(function (e) { if (/fetch|HTTP|abort|key/i.test(String(e.message))) throw e; return go(); }); // one retry on a bad reply
   }
 
   /* ---------- tiny safe markdown ---------- */
@@ -195,6 +220,7 @@
   function $(s) { return sh.querySelector(s); }
   function close() { if (sh) $('.ov').classList.remove('open'); }
   function open(which) {
+    if (!available()) return;
     build(); tab = which || tab || 'chat';
     $('.ov').classList.add('open');
     $('.hd b').textContent = '✨ ' + cfg.title;
@@ -257,7 +283,7 @@
     var score = quiz.filter(function (q) { return !q.err && q.pick != null; }), right = score.filter(function (q) { return q.pick === q.answer; }).length;
     bd.innerHTML = (quiz.length ? '' : (topics.length ? '<div class="st">' + topics.map(function (s) { return '<button>' + esc(s) + '</button>'; }).join('') + '</div>' : '')) +
       quiz.map(function (q, qi) {
-        if (q.err) return '<div class="m err">⚠️ ' + esc(T('fail')) + '<br><code>' + esc(q.err) + '</code></div>';
+        if (q.err) return '<div class="m err">⚠️ ' + esc(q.net ? T('fail') : T('cut')) + (q.net ? '<br><code>' + esc(q.err) + '</code>' : '') + '</div>';
         var done = q.pick != null;
         return '<div class="q"><h4>' + (qi + 1) + '. ' + md(q.q).replace(/^<p>|<\/p>$/g, '') + '</h4>' + q.options.map(function (o, i) {
           var c = done ? (i === q.answer ? ' ok' : i === q.pick ? ' bad' : '') : '';
@@ -282,9 +308,9 @@
     quiz = quiz.filter(function (q) { return !q.err; }).concat([]); quiz.topic = topic;
     var seen = quiz.map(function (q) { return q.q; }).slice(-15).join(' | ');
     var sys = typeof cfg.practice === 'function' ? cfg.practice() : cfg.practice;
-    var prompt = 'Write 5 new multiple-choice questions about: ' + topic + '.\n' +
+    var prompt = 'Write 4 new multiple-choice questions about: ' + topic + '.\n' +
       'Return JSON exactly like {"questions":[{"q":"question","options":["A","B","C","D"],"answer":0,"why":"one-sentence explanation"}]}. ' +
-      '"answer" is the 0-based index of the correct option. Exactly 4 options, one clearly correct. Vary which position is correct.' +
+      '"answer" is the 0-based index of the correct option. Exactly 4 short options, one clearly correct. Vary which position is correct. Keep each question and explanation brief.' +
       (seen ? '\nDo not repeat these: ' + seen : '');
     json(prompt, sys).then(function (j) {
       var qs = (Array.isArray(j) ? j : j.questions || []).filter(function (q) {
@@ -293,7 +319,8 @@
       if (!qs.length) throw new Error('No usable questions');
       quiz.push.apply(quiz, qs);
     }).catch(function (e) {
-      quiz.push({ err: String(e.message || e).slice(0, 160) });
+      var m = String(e.message || e);
+      quiz.push({ err: m.slice(0, 160), net: /fetch|HTTP|abort|network|key/i.test(m) });
     }).then(function () { busy = false; if (sh && tab === 'practice') renderPractice(); });
   }
 
@@ -330,12 +357,33 @@
     };
   }
 
+  /* ---------- on/off switch + offline hiding ---------- */
+  function enabled() { return loadSettings().on[cfg.app] === true; }
+  function online() { return typeof navigator === 'undefined' || navigator.onLine !== false; }
+  function available() { return enabled() && online(); }
+  function apply() {
+    var on = available();
+    document.documentElement.setAttribute('data-ai', on ? 'on' : 'off');
+    if (!document.getElementById('freellm-g')) {
+      var st = document.createElement('style'); st.id = 'freellm-g';
+      st.textContent = 'html:not([data-ai="on"]) .ai-only{display:none!important}html[data-ai="on"] .ai-off-only{display:none!important}';
+      (document.head || document.documentElement).appendChild(st);
+    }
+    if (sh) { $('.fab').classList.toggle('hide', !(on && cfg.fab)); if (!on) close(); }
+    if (typeof cfg.onChange === 'function') try { cfg.onChange(on); } catch (e) {}
+  }
+  function setEnabled(v) { var s = loadSettings(); s.on[cfg.app] = !!v; saveSettings(s); apply(); }
+
   function init(o) {
     for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) cfg[k] = o[k];
-    var go = function () { build(); };
+    apply();
+    var go = function () { build(); apply(); };
     if (document.body) go(); else document.addEventListener('DOMContentLoaded', go);
   }
-  function showFab(on) { build(); $('.fab').classList.toggle('hide', !on); }
+  function showFab(on) { cfg.fab = !!on; build(); apply(); }
+  window.addEventListener('online', function () { apply(); });
+  window.addEventListener('offline', function () { apply(); });
 
-  window.FreeLLM = { init: init, open: open, close: close, explain: explain, chat: chat, ask: ask, json: json, showFab: showFab, providers: PROVIDERS, settings: loadSettings };
+  window.FreeLLM = { init: init, open: open, close: close, explain: explain, chat: chat, ask: ask, json: json, showFab: showFab, providers: PROVIDERS, settings: loadSettings,
+    enabled: enabled, available: available, online: online, setEnabled: setEnabled };
 })();
