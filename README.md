@@ -33,3 +33,13 @@ Q("math", "algebra", "Solve: 2x = 10", ["5", "20", "8", "12"], "Divide both side
 ```
 
 Questions in `q-english.js`, `q-math.js`, `q-science.js` and `q-reasoning.js` are **Easy**. Real-exam questions live in the `q-real-*.js` files, which start with `D(3);` (everything after it is Real exam level) and end with `D(1);`.
+
+## Free AI tutor
+
+`free-llm.js` adds a free AI tutor (✨ AI in the header, a home tile, and an **Explain with AI** button under every answer explanation):
+
+- **Chat** – ask any FEUCAT question or paste a problem you are stuck on.
+- **Practice** – generates brand-new multiple-choice questions on any topic.
+- **Explain with AI** – step-by-step explanation of the question you just answered.
+
+It works with no account or key (Pollinations.ai). For smarter answers, add a free **Google Gemini**, **Groq** or **OpenRouter** key in Settings → AI settings; keys are saved only on your device. AI answers can be wrong — the built-in explanations are the reference.
