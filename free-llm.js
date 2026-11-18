@@ -1,6 +1,9 @@
 /*! free-llm.js — a drop-in, free AI helper for static web apps (no server, no build step).
  *
- * Shared by Parlons, Reviewer-ni-Xander and ACCtimerDU. Keep the copies identical.
+ * ⚠ LOCAL COPY — Reviewer-ni-Xander only. This copy has split from the one shared with
+ *   Parlons and ACCtimerDU. Changes here (2026-11): streamed answers, a 15 s "first word"
+ *   limit and a 45 s total limit with quick fallback, a link button under explanations,
+ *   setEnabled() for an on/off switch, and a Gemini setup guide. Port them deliberately.
  *
  * Providers (all speak the OpenAI "chat completions" format):
  *   - Pollinations.ai  — free, no signup, no key. Used by default and as the fallback.
@@ -30,7 +33,7 @@
     custom: { name: 'Custom (OpenAI-compatible)', url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.2', key: false, link: '' }
   };
   var SKEY = 'freellm:settings';
-  var TIMEOUT = 60000;
+  var TIMEOUT = 45000, FIRST_TOKEN = 15000;
 
   var UI = {
     en: { chat: 'Chat', practice: 'Practice', settings: 'AI settings', send: 'Send', ph: 'Ask anything…', thinking: 'Thinking…', close: 'Close', clear: 'New chat',
@@ -38,7 +41,10 @@
       prov: 'Provider', key: 'API key', model: 'Model', url: 'Endpoint URL', getKey: 'Get a free key', save: 'Save', test: 'Test', saved: 'Saved.', ok: 'Working: ',
       keyNote: 'Your key stays in this browser and is sent only to the provider above. Leave everything on Pollinations to use AI with no key at all.',
       fail: 'The AI could not be reached. Check your internet connection, or pick another provider in AI settings.', fallback: '(used the free fallback)',
-      disclaimer: 'AI answers can be wrong. Double-check important facts.', score: 'Score', explainQ: 'Explain this question to me.' },
+      disclaimer: 'AI answers can be wrong. Double-check important facts.', score: 'Score', explainQ: 'Explain this question to me.', backup: 'Slow reply — switching to the backup…',
+      off: 'The AI tutor is turned off. Turn it on in the app’s Settings.',
+      gemTitle: 'Faster, smarter answers with a free Gemini key',
+      gemSteps: '<ol><li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with a Google account.</li><li>Tap <b>Create API key</b>, then copy it.</li><li>Choose <b>Google Gemini</b> above, paste the key, tap <b>Save</b>, then <b>Test</b>.</li></ol><p class="mut">Free, no credit card. The key is saved only on this phone.</p>' },
     fr: { chat: 'Discussion', practice: 'Exercices', settings: 'Réglages IA', send: 'Envoyer', ph: 'Posez une question…', thinking: 'Réflexion…', close: 'Fermer', clear: 'Nouvelle discussion',
       topic: 'Thème', topicPh: 'ex. passé composé, la nourriture…', gen: 'Créer 5 questions', more: 'Plus de questions', correct: 'Correct !', wrong: 'Pas tout à fait. Réponse : ',
       prov: 'Fournisseur', key: 'Clé API', model: 'Modèle', url: 'URL du service', getKey: 'Obtenir une clé gratuite', save: 'Enregistrer', test: 'Tester', saved: 'Enregistré.', ok: 'Ça marche : ',
@@ -48,7 +54,7 @@
   };
 
   var cfg = { app: 'app', title: 'AI tutor', lang: 'en', tutor: 'You are a friendly, concise tutor.', practice: '', explain: '', starters: [], topics: [], fab: true };
-  var history = [], quiz = [], busy = false, root = null, sh = null, tab = 'chat';
+  var history = [], quiz = [], busy = false, root = null, sh = null, tab = 'chat', status = '', enabled = true;
 
   /* ---------- settings ---------- */
   function loadSettings() {
@@ -63,22 +69,64 @@
   function lang() { var l = typeof cfg.lang === 'function' ? cfg.lang() : cfg.lang; return UI[l] ? l : 'en'; }
   function T(k) { return UI[lang()][k] || UI.en[k] || k; }
 
-  /* ---------- network ---------- */
-  function post(url, headers, body) {
-    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    var timer = ctl ? setTimeout(function () { ctl.abort(); }, TIMEOUT) : null;
+  /* ---------- network ----------
+     Streams the answer (stream: true) so text shows up as it is written.
+     Gives up if no text arrives within FIRST_TOKEN ms, and stops after TIMEOUT ms in total
+     (returning whatever arrived so far). */
+  function nonStreamText(txt) {
+    var j; try { j = JSON.parse(txt); } catch (e) { return txt; }
+    var c = j && j.choices && j.choices[0];
+    var out = c && c.message ? c.message.content : c && c.text;
+    if (typeof out !== 'string' || !out.trim()) throw new Error('Empty answer');
+    return out;
+  }
+  function post(url, headers, body, onDelta, onThinking) {
+    // got = visible text arrived; alive = anything arrived (reasoning models stream hidden "reasoning" first).
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, got = false, alive = false, full = '', why = '';
+    var t1 = ctl ? setTimeout(function () { if (!alive) { why = 'first'; ctl.abort(); } }, FIRST_TOKEN) : null;
+    var t2 = ctl ? setTimeout(function () { why = 'total'; ctl.abort(); }, TIMEOUT) : null;
+    var stopTimers = function () { clearTimeout(t1); clearTimeout(t2); };
+    body.stream = true;
     return fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
       .then(function (r) {
-        return r.text().then(function (txt) {
-          if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + txt.slice(0, 200));
-          var j; try { j = JSON.parse(txt); } catch (e) { return txt; }
-          var c = j && j.choices && j.choices[0];
-          var out = c && c.message ? c.message.content : c && c.text;
-          if (typeof out !== 'string' || !out.trim()) throw new Error('Empty answer');
-          return out;
-        });
+        if (!r.ok) return r.text().then(function (t) { throw new Error('HTTP ' + r.status + ': ' + t.slice(0, 200)); });
+        var ct = r.headers.get('content-type') || '';
+        if (!r.body || !r.body.getReader || ct.indexOf('event-stream') < 0) {
+          alive = true;
+          return r.text().then(function (txt) { var out = nonStreamText(txt); got = true; if (onDelta) onDelta(out, out); return out; });
+        }
+        var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
+        var pump = function () {
+          return reader.read().then(function (res) {
+            if (res.done) return;
+            buf += dec.decode(res.value, { stream: true });
+            var lines = buf.split('\n'); buf = lines.pop();
+            lines.forEach(function (l) {
+              l = l.trim(); if (l.indexOf('data:') !== 0) return;
+              var d = l.slice(5).trim(); if (!d || d === '[DONE]') return;
+              try {
+                var c = JSON.parse(d).choices, dl = c && c[0] && c[0].delta, piece = dl && dl.content;
+                if (dl && !alive && (dl.reasoning || dl.reasoning_content)) { alive = true; if (onThinking) onThinking(); }
+                if (piece) { got = alive = true; full += piece; if (onDelta) onDelta(piece, full); }
+              } catch (e) {}
+            });
+            return pump();
+          });
+        };
+        return pump().then(function () { if (!full.trim()) throw new Error('Empty answer'); return full; });
       })
-      .finally(function () { if (timer) clearTimeout(timer); });
+      .catch(function (e) {
+        if (got && full.trim()) return full + (why === 'total' ? ' …' : '');
+        if (why === 'first') throw new Error('No reply within ' + FIRST_TOKEN / 1000 + ' s');
+        if (why === 'total') throw new Error('Timed out');
+        throw e;
+      })
+      .finally(stopTimers);
+  }
+  function getWithTimeout(url, ms) {
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var t = ctl ? setTimeout(function () { ctl.abort(); }, ms) : null;
+    return fetch(url, { signal: ctl ? ctl.signal : undefined }).finally(function () { clearTimeout(t); });
   }
   function callProvider(id, messages, opts) {
     var s = loadSettings(), p = PROVIDERS[id];
@@ -89,14 +137,19 @@
     if (id === 'openrouter') { headers['HTTP-Referer'] = location.origin; headers['X-Title'] = cfg.title; }
     var body = { model: model, messages: messages, temperature: opts.temperature == null ? 0.7 : opts.temperature };
     if (id === 'pollinations') { body.private = true; body.referrer = cfg.app; }
-    return post(url, headers, body).catch(function (e) {
+    // The free model (gpt-oss-20b) and Gemini 2.5 "think" before writing; low effort roughly halves the wait.
+    if ((id === 'pollinations' || id === 'gemini') && !s.models[id]) body.reasoning_effort = 'low';
+    var thinking = function () { if (opts.onStatus) opts.onStatus(T('thinking')); };
+    return post(url, headers, body, opts.onDelta, thinking).catch(function (e) {
       if (id !== 'pollinations') throw e;
-      // Second keyless route: the simple GET endpoint.
+      // Second keyless route: the simple GET endpoint (not streamed), with its own short limit.
+      if (opts.onStatus) opts.onStatus(T('backup'));
       var sys = messages.filter(function (m) { return m.role === 'system'; }).map(function (m) { return m.content; }).join('\n');
       var convo = messages.filter(function (m) { return m.role !== 'system'; }).slice(-8)
         .map(function (m) { return (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content; }).join('\n\n');
       var q = 'https://text.pollinations.ai/' + encodeURIComponent(convo.slice(-6000)) + '?model=openai&private=true&system=' + encodeURIComponent(sys.slice(0, 1500));
-      return fetch(q).then(function (r) { if (!r.ok) throw e; return r.text(); });
+      return getWithTimeout(q, 25000).then(function (r) { if (!r.ok) throw e; return r.text(); })
+        .then(function (t) { if (opts.onDelta) opts.onDelta(t, t); return t; });
     });
   }
   function chat(messages, opts) {
@@ -105,6 +158,7 @@
     return callProvider(id, messages, opts).catch(function (err) {
       if (id === 'pollinations') throw err;
       if (window.console) console.warn('[FreeLLM] ' + id + ' failed, using free fallback:', err);
+      if (opts.onStatus) opts.onStatus(T('backup'));
       return callProvider('pollinations', messages, opts).then(function (t) { return t + '\n\n_' + T('fallback') + '_'; });
     });
   }
@@ -177,7 +231,9 @@
     '.q{border:1px solid var(--line);border-radius:14px;padding:10px 12px}.q h4{margin:0 0 8px;font-size:15px}' +
     '.o{display:block;width:100%;text-align:left;margin:5px 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:none}' +
     '.o.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}.o.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}' +
-    '.o[disabled]{cursor:default}.why{margin-top:6px;font-size:14px}.why.ok b{color:var(--ok)}.why.bad b{color:var(--bad)}';
+    '.o[disabled]{cursor:default}.why{margin-top:6px;font-size:14px}.why.ok b{color:var(--ok)}.why.bad b{color:var(--bad)}' +
+    '.lk{align-self:flex-start;border:1px solid var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:600;margin-top:-4px}' +
+    '.guide{border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:10px;padding:8px 12px;margin:10px 0;background:var(--pan);font-size:14px}.guide ol{margin:6px 0;padding-left:1.3em}.guide li{margin:3px 0}.guide a{color:var(--acc)}';
 
   function build() {
     if (root) return;
@@ -195,6 +251,7 @@
   function $(s) { return sh.querySelector(s); }
   function close() { if (sh) $('.ov').classList.remove('open'); }
   function open(which) {
+    if (!enabled) return;
     build(); tab = which || tab || 'chat';
     $('.ov').classList.add('open');
     $('.hd b').textContent = '✨ ' + cfg.title;
@@ -212,9 +269,13 @@
     var starters = (typeof cfg.starters === 'function' ? cfg.starters() : cfg.starters) || [];
     bd.innerHTML = (history.length ? '' : '<div class="m">' + md(cfg.greeting ? (typeof cfg.greeting === 'function' ? cfg.greeting() : cfg.greeting) : '👋') + '</div>' +
       (starters.length ? '<div class="st">' + starters.map(function (s) { return '<button>' + esc(s) + '</button>'; }).join('') + '</div>' : '')) +
-      history.map(function (m) { return '<div class="m' + (m.role === 'user' ? ' u' : '') + '">' + (m.role === 'user' ? esc(m.shown || m.content).replace(/\n/g, '<br>') : md(m.content)) + '</div>'; }).join('') +
-      (busy ? '<div class="m dots">' + T('thinking') + '</div>' : '') + '<p class="mut">' + esc(T('disclaimer')) + '</p>';
+      history.map(function (m, k) {
+        if (m.role === 'user') return '<div class="m u">' + esc(m.shown || m.content).replace(/\n/g, '<br>') + '</div>';
+        return '<div class="m' + (m.live ? ' live' : '') + (m.err ? ' err' : '') + '">' + (m.live && !m.content ? '<span class="dots">' + esc(status || T('thinking')) + '</span>' : md(m.content)) + '</div>' +
+          (m.link && !m.live ? '<button class="lk" data-k="' + k + '">' + esc(m.link.label) + '</button>' : '');
+      }).join('') + '<p class="mut">' + esc(T('disclaimer')) + '</p>';
     Array.prototype.forEach.call(bd.querySelectorAll('.st button'), function (b) { b.onclick = function () { send(b.textContent); }; });
+    Array.prototype.forEach.call(bd.querySelectorAll('.lk'), function (b) { b.onclick = function () { var m = history[+b.dataset.k]; close(); if (m && m.link && m.link.onClick) m.link.onClick(); }; });
     ft.innerHTML = '<textarea placeholder="' + esc(T('ph')) + '" rows="1"></textarea><button class="go"' + (busy ? ' disabled' : '') + '>' + esc(T('send')) + '</button>' +
       (history.length ? '<button class="go alt" title="' + esc(T('clear')) + '">↺</button>' : '');
     var ta = ft.querySelector('textarea');
@@ -225,16 +286,29 @@
     bd.scrollTop = bd.scrollHeight;
     if (!busy && window.matchMedia && matchMedia('(pointer:fine)').matches) ta.focus();
   }
-  function send(text, shown) {
+  function send(text, shown, link) {
     text = String(text || '').trim();
     if (!text || busy) return;
     history.push({ role: 'user', content: text, shown: shown });
-    busy = true; if (tab === 'chat') renderChat();
+    var live = { role: 'assistant', content: '', live: true, link: link || null };
+    var msgs = history.slice(-12).map(function (m) { return { role: m.role, content: m.content }; });
+    history.push(live);
+    busy = true; status = ''; if (tab === 'chat') renderChat();
     var sys = (typeof cfg.tutor === 'function' ? cfg.tutor() : cfg.tutor) + (lang() === 'fr' ? '\nThe learner reads the app in French.' : '');
-    var msgs = [{ role: 'system', content: sys }].concat(history.slice(-12).map(function (m) { return { role: m.role, content: m.content }; }));
-    chat(msgs).then(function (t) { history.push({ role: 'assistant', content: t.trim() }); })
-      .catch(function (e) { history.push({ role: 'assistant', content: '⚠️ ' + T('fail') + '\n\n`' + String(e.message || e).slice(0, 160) + '`' }); })
-      .then(function () { busy = false; if (sh && tab === 'chat' && $('.ov').classList.contains('open')) renderChat(); });
+    var liveEl = function () { return sh && tab === 'chat' ? sh.querySelector('.m.live') : null; };
+    chat([{ role: 'system', content: sys }].concat(msgs), {
+      onDelta: function (piece, full) {
+        live.content = full;
+        var el = liveEl(), bd = sh && $('.bd');
+        if (!el) return;
+        var nearBottom = bd.scrollHeight - bd.scrollTop - bd.clientHeight < 140;
+        el.innerHTML = md(full);
+        if (nearBottom) bd.scrollTop = bd.scrollHeight;
+      },
+      onStatus: function (s) { status = s; var el = liveEl(); if (el && !live.content) el.innerHTML = '<span class="dots">' + esc(s) + '</span>'; }
+    }).then(function (t) { live.content = String(t).trim(); })
+      .catch(function (e) { live.err = true; live.content = '⚠️ ' + T('fail') + '\n\n`' + String(e.message || e).slice(0, 160) + '`'; })
+      .then(function () { live.live = false; busy = false; status = ''; if (sh && tab === 'chat' && $('.ov').classList.contains('open')) renderChat(); });
   }
   function explain(d) {
     d = d || {};
@@ -245,9 +319,10 @@
     if (d.note) lines.push('Notes from the app: ' + plain(d.note));
     var extra = typeof cfg.explain === 'function' ? cfg.explain() : cfg.explain;
     lines.push(d.ask || extra || 'Explain step by step why the correct answer is right' + (d.picked != null ? ' and why my answer is or is not' : '') + '. Keep it short, then give one similar example.');
+    if (!enabled) return;
     history = [];
     open('chat');
-    send(lines.join('\n'), d.shown || '💡 ' + T('explainQ') + '\n' + plain(d.question).slice(0, 160));
+    send(lines.join('\n'), d.shown || '💡 ' + T('explainQ') + '\n' + plain(d.question).slice(0, 160), d.link);
   }
 
   /* practice tab */
@@ -302,7 +377,7 @@
     var s = loadSettings(), bd = $('.bd'), ft = $('.ft');
     var draw = function () {
       var id = sel.value, p = PROVIDERS[id];
-      box.innerHTML = (id === 'pollinations' ? '' :
+      box.innerHTML = (id === 'pollinations' || id === 'gemini' ? '<div class="guide"><b>' + esc(T('gemTitle')) + '</b>' + T('gemSteps') + '</div>' : '') + (id === 'pollinations' ? '' :
         (p.key || id === 'custom' ? '<label>' + T('key') + (id === 'custom' ? ' (optional)' : '') + '</label><input type="password" autocomplete="off" class="k" value="' + esc(s.keys[id] || '') + '">' : '') +
         (p.link ? '<p class="mut"><a href="' + p.link + '" target="_blank" rel="noopener">' + T('getKey') + ' ↗</a></p>' : '')) +
         '<label>' + T('model') + '</label><input class="md" value="' + esc(s.models[id] || p.model) + '">' +
@@ -335,7 +410,9 @@
     var go = function () { build(); };
     if (document.body) go(); else document.addEventListener('DOMContentLoaded', go);
   }
-  function showFab(on) { build(); $('.fab').classList.toggle('hide', !on); }
+  function showFab(on) { build(); $('.fab').classList.toggle('hide', !on || !enabled); }
+  // On/off switch: when off, the panel will not open and any open panel closes.
+  function setEnabled(on) { enabled = !!on; if (!enabled) close(); if (sh) $('.fab').classList.toggle('hide', !cfg.fab || !enabled); }
 
-  window.FreeLLM = { init: init, open: open, close: close, explain: explain, chat: chat, ask: ask, json: json, showFab: showFab, providers: PROVIDERS, settings: loadSettings };
+  window.FreeLLM = { init: init, open: open, close: close, explain: explain, chat: chat, ask: ask, json: json, showFab: showFab, setEnabled: setEnabled, isEnabled: function () { return enabled; }, providers: PROVIDERS, settings: loadSettings };
 })();

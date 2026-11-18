@@ -33,7 +33,7 @@ function neg(n) { if (typeof n !== 'number') return String(n); n = Math.round(n 
 function sgn(n) { return n < 0 ? ' − ' + (-n) : ' + ' + n; }
 
 /* ---------- storage ---------- */
-var DEF = { level: 1, qtimer: true, debt: false, paceMin: 120, paceItems: 150, bg: 100 };
+var DEF = { level: 1, qtimer: true, debt: false, paceMin: 120, paceItems: 150, bg: 100, ai: true };
 function blank() { return { name: '', attempts: [], missed: {}, settings: Object.assign({}, DEF) }; }
 function load() {
   try {
@@ -628,13 +628,28 @@ function timeNote(it) {
 function feedbackHtml(it) {
   var ok = it.chosen === 0, letter = LETTERS[it.order.indexOf(0)];
   return '<div class="feedback' + (ok ? '' : ' wrong') + '" id="fb"><b>' + (ok ? '✓ Correct!' : (it.chosen === null ? 'No answer.' : '✗ Not quite.')) + '</b> The correct answer is <b>' + letter + '</b>. ' + timeNote(it) + '<p>' + it.q.exp + '</p>' +
-    (window.FreeLLM ? '<button class="btn sm alt" data-act="aiexplain" data-arg="' + (AI_ITEMS.push(it) - 1) + '">✨ Explain with AI</button>' : '') + '</div>';
+    (aiOn() ? '<button class="btn sm alt" data-act="aiexplain" data-arg="' + (AI_ITEMS.push(it) - 1) + '">✨ Explain with AI</button>' : '') + '</div>';
 }
 var AI_ITEMS = [];
+function aiOn() { return !!window.FreeLLM && store.settings.ai !== false; }
+function applyAI() {
+  if (window.FreeLLM && FreeLLM.setEnabled) FreeLLM.setEnabled(aiOn());
+  var b = document.querySelector('.top [data-act="aiopen"]'); if (b) b.hidden = !aiOn();
+}
+applyAI();
+// Which Basic Reviewer lesson rebuilds the skill behind a question (chosen by the app, never by the AI).
+function lessonFor(q) {
+  var t = q.topic, txt = String(q.q).replace(/<[^>]+>/g, ' ');
+  if (t === 'arithmetic' || t === 'speed') return /%|percent|ratio|fraction|proportion|discount|interest|cost|price|₱|per\b|each|rate|speed|km\/h|days?\b|hours?\b|\d\s*\/\s*\d|of\s+\d/i.test(txt) ? 'fractions' : 'number';
+  if (t === 'bio') return /cell|organelle|mitochond|membrane|nucleus|ribosom|chloroplast|vacuole|mitosis|meiosis/i.test(txt) ? 'cell' : 'life';
+  var map = { algebra: 'algebra', geometry: 'geometry', trig: 'trig', stats: 'stats', seq: 'seq', chem: 'chem', physics: 'physics', earth: 'earth', grammar: 'grammar', vocab: 'vocab', reading: 'reading', verbal: 'verbal', series: 'patterns', figure: 'patterns', coded: 'verbal' };
+  return map[t] || null;
+}
 function aiExplain(k) {
-  var it = AI_ITEMS[+k]; if (!it || !window.FreeLLM) return;
-  var q = it.q, pass = q.p && PASSAGES[q.p];
+  var it = AI_ITEMS[+k]; if (!it || !aiOn()) return;
+  var q = it.q, pass = q.p && PASSAGES[q.p], lid = lessonFor(q), les = lid && findLesson(lid);
   FreeLLM.explain({
+    link: les ? { label: '📘 Review the basics: ' + les.title, onClick: function () { if (S && !confirm('Leave this session to open the lesson? Your progress in it will not be saved.')) return; lessonView(lid); } } : null,
     question: (pass ? 'Passage "' + pass.title + '": ' + pass.text + '\n\n' : '') + q.q + (/<svg/i.test(q.q) ? ' [this question uses figures that are not shown to you; rely on the notes]' : ''),
     options: it.order.map(function (oi) { return /<svg/i.test(q.c[oi]) ? '(figure)' : q.c[oi]; }),
     correct: /<svg/i.test(q.c[0]) ? 'choice ' + LETTERS[it.order.indexOf(0)] : q.c[0],
@@ -756,7 +771,7 @@ function home() {
     '<button class="tile" data-act="assessment"><b>1. Assessment Test</b><span class="muted">Find your level: speed math, reading, abstract reasoning and more. About 45 minutes.</span><br>' + lastPill('assessment') + '</button>' +
     '<button class="tile" data-act="mock"><b>2. Mock Exam</b><span class="muted">Full timed simulation, about 100 items in 95 minutes. New questions each time.</span><br>' + lastPill('mock') + '</button>' +
     '<button class="tile" data-act="practice"><b>3. Practice by Topic</b><span class="muted">Untimed drills with instant explanations. Pick the topic you need.</span></button>' +
-    (window.FreeLLM ? '<button class="tile" data-act="aiopen"><b>✨ AI Tutor (free)</b><span class="muted">Ask any FEUCAT question, get step-by-step help, or generate brand-new practice questions on any topic.</span></button>' : '') +
+    (aiOn() ? '<button class="tile" data-act="aiopen"><b>✨ AI Tutor (free)</b><span class="muted">Ask any FEUCAT question, get step-by-step help, or generate brand-new practice questions on any topic.</span></button>' : '') +
     '<button class="tile" data-act="mistakes"><b>4. Retry My Mistakes</b><span class="muted">Questions you got wrong come back until you get them right.</span><br><span class="pill ' + (nm ? '' : 'gray') + '">' + nm + ' to review</span></button>' +
     '</div><div class="card">' + levelSlider() + '</div><div class="row"><button class="btn alt" data-act="history">My progress</button><button class="btn alt" data-act="settings">Settings</button><button class="btn alt" data-act="tips">Exam tips &amp; study plan</button></div>');
 }
@@ -821,7 +836,9 @@ function settings() {
     '<div class="pace"><label>Exam length <input type="number" id="set-paceMin" min="5" max="600" value="' + st.paceMin + '"> min</label><label>Items <input type="number" id="set-paceItems" min="5" max="500" value="' + st.paceItems + '"></label><span>= <b id="paceOut">' + secs(practicePace()) + '</b> per question</span></div></div>' +
     '<div class="card"><h2>Background</h2><p class="small muted">Strength of the animated background (the floating tamaraws and shapes). On phones it is automatically shown 25% stronger so it stays visible on small screens.</p>' +
     '<div class="lvl"><div class="lvlhead"><span>Visibility</span><b id="bgOut">' + st.bg + '%</b></div><input type="range" id="set-bg" min="0" max="200" step="10" value="' + st.bg + '" aria-label="Background visibility"></div></div>' +
-    '<div class="card"><h2>✨ AI Tutor</h2><p class="small muted">Free and works with no key (Pollinations.ai). For smarter answers you can add a free Google Gemini, Groq or OpenRouter key; it is saved only on this device.</p><button class="btn sm alt" data-act="aiopen" data-arg="settings">AI settings</button></div>' +
+    '<div class="card"><h2>✨ AI Tutor</h2>' +
+    '<label class="opt"><input type="checkbox" id="set-ai"' + (st.ai !== false ? ' checked' : '') + '><span><b>Turn on the AI tutor</b><br><span class="muted small">Shows the ✨ AI button, the AI Tutor tile and “Explain with AI” under every answer. Turn it off to study with the built-in explanations only.</span></span></label>' +
+    '<p class="small muted">Free and works with no key (Pollinations.ai). For faster, smarter answers add a free Google Gemini key — AI settings has a 3-step guide. The key is saved only on this device.</p><button class="btn sm alt" data-act="aiopen" data-arg="settings" id="aiSetBtn"' + (st.ai === false ? ' hidden' : '') + '>AI settings</button></div>' +
     '<button class="btn alt" data-act="home">Back</button>');
 }
 
@@ -896,7 +913,7 @@ var acts = {
     a.download = 'feucat-reviewer-scores.json'; document.body.appendChild(a); a.click(); a.remove();
   },
   aiexplain: aiExplain,
-  aiopen: function (t) { if (window.FreeLLM) FreeLLM.open(t || 'chat'); },
+  aiopen: function (t) { if (aiOn()) FreeLLM.open(t || 'chat'); },
   importData: function () { document.getElementById('file').click(); },
   resetData: function () { if (confirm('Erase ALL saved scores on this device? This cannot be undone.')) { var st = store.settings; store = blank(); store.settings = st; save(); history(); } }
 };
@@ -926,6 +943,7 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'name') { store.name = e.target.value.trim(); save(); home(); }
   if (e.target.id === 'set-qtimer') { store.settings.qtimer = e.target.checked; save(); }
   if (e.target.id === 'set-debt') { store.settings.debt = e.target.checked; save(); }
+  if (e.target.id === 'set-ai') { store.settings.ai = e.target.checked; save(); applyAI(); var sb = document.getElementById('aiSetBtn'); if (sb) sb.hidden = !e.target.checked; }
   if (e.target.id === 'file' && e.target.files[0]) {
     var r = new FileReader();
     r.onload = function () {

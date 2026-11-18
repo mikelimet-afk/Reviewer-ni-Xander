@@ -43,3 +43,9 @@ Questions in `q-english.js`, `q-math.js`, `q-science.js` and `q-reasoning.js` ar
 - **Explain with AI** – step-by-step explanation of the question you just answered.
 
 It works with no account or key (Pollinations.ai). For smarter answers, add a free **Google Gemini**, **Groq** or **OpenRouter** key in Settings → AI settings; keys are saved only on your device. AI answers can be wrong — the built-in explanations are the reference.
+
+- **On/off:** Settings → ✨ AI Tutor → “Turn on the AI tutor”. Off hides every AI button.
+- **Speed:** answers stream in word by word. If nothing arrives within 15 s it switches to a backup route; replies stop after 45 s.
+- **Explanations** are written for a learner rebuilding the basics (why the answer looked right, the basic skill, small steps, one practice problem), and each ends with a button to the matching Basic Reviewer lesson.
+- The free model (currently gpt-oss-20b) blocks requests from `localhost`, so AI only works on the published site or another real address, not in a local preview.
+- This `free-llm.js` is a **local copy** that has split from the version shared with Parlons and ACCtimerDU (see the note at the top of the file).
