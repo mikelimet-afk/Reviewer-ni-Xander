@@ -164,18 +164,22 @@ details.rv .feedback { animation: none; }
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 /* ---------- floating tamaraws ---------- */
-.herd { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; opacity: min(1, calc(var(--bgk, 1) * var(--bgm) * .5)); }
-.herd .t { position: absolute; fill: #0f8a4b; color: #0f8a4b; opacity: .3; animation: roam 46s ease-in-out infinite; }
-.herd .t1 { width: 130px; height: 87px; left: 4%; top: 18%; }
-.herd .t2 { width: 70px; height: 79px; right: 8%; top: 12%; fill: #c99a00; color: #c99a00; opacity: .38; animation-duration: 38s; animation-delay: -8s; }
-.herd .t3 { width: 96px; height: 64px; right: 14%; top: 62%; transform: scaleX(-1); animation-name: roamr; animation-duration: 52s; animation-delay: -20s; }
-.herd .t4 { width: 54px; height: 61px; left: 12%; top: 74%; opacity: .32; animation-duration: 34s; animation-delay: -14s; }
-.herd .t5 { width: 74px; height: 49px; left: 46%; top: 40%; fill: #c99a00; opacity: .26; animation-name: roamr; animation-duration: 60s; animation-delay: -31s; }
-.herd .t6 { width: 60px; height: 40px; left: 70%; top: 88%; opacity: .26; animation-duration: 44s; animation-delay: -5s; }
+.herd { position: fixed; inset: 0 0 -320px 0; z-index: -1; will-change: transform; pointer-events: none; overflow: hidden; opacity: min(1, calc(var(--bgk, 1) * var(--bgm) * .5)); }
+.herd .t { position: absolute; color: #0f8a4b; opacity: .55; animation: roam 46s ease-in-out infinite; overflow: visible; }
+.herd .t1 { width: 176px; height: 110px; left: 3%; top: 17%; }
+.herd .t2 { width: 66px; height: 74px; right: 8%; top: 12%; color: #c99a00; opacity: .6; animation-duration: 38s; animation-delay: -8s; }
+.herd .t3 { width: 128px; height: 80px; right: 12%; top: 61%; transform: scaleX(-1); animation-name: roamr; animation-duration: 52s; animation-delay: -20s; }
+.herd .t4 { width: 50px; height: 56px; left: 12%; top: 74%; opacity: .5; animation-duration: 34s; animation-delay: -14s; }
+.herd .t5 { width: 104px; height: 65px; left: 46%; top: 40%; color: #c99a00; opacity: .45; animation-name: roamr; animation-duration: 60s; animation-delay: -31s; }
+.herd .t6 { width: 84px; height: 52px; left: 70%; top: 87%; opacity: .45; animation-duration: 44s; animation-delay: -5s; }
+/* one continuous line; it draws itself once on page load, then the figures only drift */
+#tam .line, #tamem .line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw 2.8s cubic-bezier(.45,.05,.25,1) .3s both; }
+#tam .line, #tamem .line { stroke-width: var(--lw, 2.6); }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes roam { 0%, 100% { translate: 0 0; rotate: 0deg; } 25% { translate: 6vw -4vh; rotate: 4deg; } 50% { translate: 12vw 3vh; rotate: -3deg; } 75% { translate: 4vw 6vh; rotate: 2deg; } }
 @keyframes roamr { 0%, 100% { translate: 0 0; rotate: 0deg; } 25% { translate: -7vw 4vh; rotate: -4deg; } 50% { translate: -12vw -3vh; rotate: 3deg; } 75% { translate: -3vw -6vh; rotate: -2deg; } }
-@media (prefers-color-scheme: dark) { .herd .t { fill: #3cc47a; color: #3cc47a; } .herd .t2, .herd .t5 { fill: #f2b705; color: #f2b705; } }
-.logo svg { fill: #3b2c00; color: #3b2c00; --card: #f2b705; }
+@media (prefers-color-scheme: dark) { .herd .t { color: #3cc47a; } .herd .t2, .herd .t5 { color: #f2b705; } }
+.logo svg { color: #3b2c00; --lw: 6; }
 
 /* header on small screens */
 .top nav { display: flex; gap: 2px; }
@@ -215,6 +219,7 @@ details.rv summary .tm { margin-left: auto; flex: none; font-size: .8rem; font-w
 /* ---------- harder figures ---------- */
 .matrix { display: grid; grid-template-columns: repeat(3, 58px); gap: 6px; margin-top: 12px; }
 .matrix .fig { width: 58px; height: 58px; }
+.net { height: auto; max-width: 100%; color: var(--ink); flex: none; }
 
 /* ---------- basic reviewer ---------- */
 .tile.feature { background: linear-gradient(135deg, rgba(242,183,5,.18), rgba(15,138,75,.12)), var(--card); border-color: var(--gold); }

@@ -442,8 +442,87 @@ function figAnalogyHard() {
     [glyph(gs[1], ans, true), glyph(gs[1], ans), glyph(gs[1], (ans + 180) % 360, true), glyph(gs[1], (ans + 90) % 360, true)],
     'The second figure is a mirror image of the first — it is flipped across a line, not just turned (try rotating it back: it never matches). Flip the third figure across the same mirror line. One choice is only rotated: that is the trap.');
 }
-var FIGS_E = [figRotation, figDot, figSides, figCount, figOdd, figAnalogy];
-var FIGS_H = [figDual, figMatrix, figXor, figOddHard, figAnalogyHard];
+/* spatial reasoning: paper folding with a punched hole */
+var REFL = { v: function (p) { return [1 - p[0], p[1]]; }, h: function (p) { return [p[0], 1 - p[1]]; }, d: function (p) { return [p[1], p[0]]; } };
+var FOLDNAME = { v: 'the right half is folded over onto the left half', h: 'the bottom half is folded up onto the top half', d: 'the top-right corner is folded down onto the bottom-left corner along the diagonal' };
+function paperSvg(region, holes, crease) {
+  var X = function (x) { return (12 + 36 * x).toFixed(1); }, s = '';
+  var R = { full: [0, 0, 1, 1], left: [0, 0, .5, 1], top: [0, 0, 1, .5], quarter: [0, 0, .5, .5] }[region];
+  s += region === 'tri' ? '<polygon points="' + X(0) + ',' + X(0) + ' ' + X(0) + ',' + X(1) + ' ' + X(1) + ',' + X(1) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+    : '<rect x="' + X(R[0]) + '" y="' + X(R[1]) + '" width="' + (36 * (R[2] - R[0])) + '" height="' + (36 * (R[3] - R[1])) + '" fill="none" stroke="currentColor" stroke-width="2"/>';
+  if (crease) s += '<path d="' + (region === 'left' && crease === 'h' ? 'M8 30H34' : region === 'top' && crease === 'v' ? 'M30 8V34' : { v: 'M30 8V52', h: 'M8 30H52', d: 'M9 9L51 51' }[crease]) + '" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.5" opacity=".75"/>';
+  (holes || []).forEach(function (p) { s += '<circle cx="' + X(p[0]) + '" cy="' + X(p[1]) + '" r="3" fill="currentColor"/>'; });
+  return svg(s);
+}
+function holeKey(hs) { return hs.map(function (p) { return p[0].toFixed(2) + ',' + p[1].toFixed(2); }).sort().filter(function (k, i, a) { return a.indexOf(k) === i; }).join(' '); }
+function figPunch() {
+  var h = hardNow(), folds = h ? pick([['v', 'h'], ['h', 'v'], ['d'], ['v', 'h']]) : [pick(['v', 'h'])];
+  var region = folds.length === 2 ? 'quarter' : { v: 'left', h: 'top', d: 'tri' }[folds[0]];
+  var cand = { left: [[.2, .2], [.3, .7], [.15, .45], [.35, .85]], top: [[.2, .3], [.7, .2], [.45, .15], [.85, .35]], quarter: [[.15, .15], [.35, .2], [.2, .38], [.38, .38], [.12, .3]], tri: [[.15, .5], [.2, .8], [.4, .75], [.15, .3]] }[region];
+  var p = pick(cand), holes = [p];
+  folds.slice().reverse().forEach(function (f) { holes = holes.concat(holes.map(REFL[f])); });
+  var wrongAxis = folds.map(function (f) { return f === 'v' ? 'h' : f === 'h' ? 'v' : 'v'; }), alt = [p];
+  wrongAxis.slice().reverse().forEach(function (f) { alt = alt.concat(alt.map(REFL[f])); });
+  var opts = [holes, [p], alt, holes.length > 2 ? holes.slice(0, 3) : [p, [1 - p[0], 1 - p[1]]], [p, [p[0], p[1] > .5 ? p[1] - .3 : p[1] + .3]]], seen = {}, out = [];
+  opts.forEach(function (o) { var k = holeKey(o); if (!seen[k] && out.length < 4) { seen[k] = 1; out.push(o); } });
+  var steps = [], shape = 'full';
+  folds.forEach(function (f, i) { steps.push(paperSvg(shape, null, f)); shape = folds.length === 2 && i === 1 ? 'quarter' : { v: 'left', h: 'top', d: 'tri' }[f]; });
+  steps.push(paperSvg(region, [p]));
+  return G('reasoning', 'figure', 'A square sheet of paper is folded along the dashed line' + (folds.length > 1 ? 's in order' : '') + ', then one hole is punched through all the layers. What does the sheet look like when unfolded?' + frames(steps),
+    out.map(function (o) { return paperSvg('full', o); }),
+    'Unfold one step at a time, starting with the last fold. Each fold works like a mirror: every hole gets a twin reflected across that fold line. Here ' + folds.map(function (f) { return FOLDNAME[f]; }).join(', then ') + ', so the punch makes ' + holes.length + ' holes in mirror positions.');
+}
+/* spatial reasoning: cube nets (which face is opposite?) */
+function foldNet(cells) {
+  var key = function (r, c) { return r + ',' + c; }, idx = {}, res = [], neg3 = function (a) { return [-a[0], -a[1], -a[2]]; };
+  cells.forEach(function (c, i) { idx[key(c[0], c[1])] = i; });
+  res[0] = { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] };
+  var q = [0];
+  while (q.length) {
+    var i = q.shift(), c = cells[i], f = res[i];
+    [[0, 1], [0, -1], [1, 0], [-1, 0]].forEach(function (d) {
+      var j = idx[key(c[0] + d[0], c[1] + d[1])]; if (j == null || res[j]) return;
+      var g = d[1] === 1 ? { n: f.u, u: neg3(f.n), v: f.v } : d[1] === -1 ? { n: neg3(f.u), u: f.n, v: f.v } : d[0] === 1 ? { n: f.v, u: f.u, v: neg3(f.n) } : { n: neg3(f.v), u: f.u, v: f.n };
+      res[j] = g; q.push(j);
+    });
+  }
+  return res.map(function (f) { return f ? f.n.join(',') : null; });
+}
+var NETS = (function () {
+  var c = [], a, b;
+  for (a = 0; a < 4; a++) for (b = 0; b < 4; b++) c.push([[0, a], [1, 0], [1, 1], [1, 2], [1, 3], [2, b]]);
+  c.push([[0, 0], [0, 1], [1, 1], [1, 2], [1, 3], [2, 3]], [[0, 0], [0, 1], [1, 1], [1, 2], [1, 3], [2, 2]], [[0, 0], [0, 1], [1, 1], [1, 2], [1, 3], [2, 1]], [[0, 0], [0, 1], [1, 1], [1, 2], [2, 2], [2, 3]], [[0, 0], [0, 1], [0, 2], [1, 2], [1, 3], [1, 4]]);
+  return c.filter(function (n) { var f = foldNet(n); return f.indexOf(null) < 0 && new Set(f).size === 6; });
+})();
+function figCube() {
+  var h = hardNow(), net = h ? pick(NETS) : [[0, 1], [1, 0], [1, 1], [1, 2], [1, 3], [2, 1]], f = foldNet(net), L = shuffle(['A', 'B', 'C', 'D', 'E', 'F']);
+  var rows = 0, cols = 0; net.forEach(function (c) { rows = Math.max(rows, c[0] + 1); cols = Math.max(cols, c[1] + 1); });
+  var u = 20, s = net.map(function (c, i) { return '<rect x="' + (2 + c[1] * u) + '" y="' + (2 + c[0] * u) + '" width="' + u + '" height="' + u + '" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="' + (2 + c[1] * u + u / 2) + '" y="' + (2 + c[0] * u + u / 2 + 5) + '" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">' + L[i] + '</text>'; }).join('');
+  var a = rnd(6), oppNormal = f[a].split(',').map(function (x) { return String(-x); }).join(','), b = f.indexOf(oppNormal.replace(/-0/g, '0'));
+  if (b < 0) b = f.map(function (x) { return x.replace(/-0/g, '0'); }).indexOf(oppNormal.replace(/-0/g, '0'));
+  var others = [0, 1, 2, 3, 4, 5].filter(function (i) { return i !== a && i !== b; });
+  return G('reasoning', 'figure', 'This net is folded into a cube. Which face ends up <b>opposite</b> face <b>' + L[a] + '</b>?<div class="frames"><svg class="net" viewBox="0 0 ' + (cols * u + 4) + ' ' + (rows * u + 4) + '" width="' + (cols * 30) + '">' + s + '</svg></div>',
+    [L[b]].concat(sample(others, 3).map(function (i) { return L[i]; })),
+    'Faces that touch ' + L[a] + ' in the net (or become its neighbors when folded) can never be opposite it. Tip: two squares in a straight line with exactly ONE square between them always end up opposite. Fold the net around one square in your head: ' + L[a] + ' and ' + L[b] + ' face away from each other.');
+}
+/* spatial reasoning: painted cube cut into small cubes; mirror-image clocks */
+function figPaintCube() {
+  var n = pick([3, 4, 5]), k = pick([3, 2, 1, 0]), cnt = { 3: 8, 2: 12 * (n - 2), 1: 6 * (n - 2) * (n - 2), 0: Math.pow(n - 2, 3) };
+  var where = { 3: 'the 8 corners', 2: 'the edges (12 edges × ' + (n - 2) + ' each)', 1: 'the middle of each face (6 faces × ' + (n - 2) + '²)', 0: 'the hidden core (' + (n - 2) + '³)' }[k];
+  return G('reasoning', 'figure', 'A wooden cube is painted on all six faces, then cut into ' + (n * n * n) + ' equal small cubes (' + n + ' × ' + n + ' × ' + n + '). How many small cubes have <b>exactly ' + (k === 0 ? 'no' : k) + '</b> painted face' + (k === 1 ? '' : 's') + '?',
+    choices(cnt[k], [cnt[(k + 1) % 4], cnt[(k + 3) % 4], n * n], cnt[k]),
+    'Cubes with exactly ' + k + ' painted face' + (k === 1 ? '' : 's') + ' sit at ' + where + ': ' + cnt[k] + '. Check: 8 + ' + cnt[2] + ' + ' + cnt[1] + ' + ' + cnt[0] + ' = ' + (n * n * n) + '.');
+}
+function figMirrorClock() {
+  var hh = rnd(11) + 1, mm = pick([0, 5, 10, 15, 20, 25, 35, 40, 45, 50]), tot = ((720 - (hh * 60 + mm)) % 720 + 720) % 720;
+  var ah = Math.floor(tot / 60) || 12, am = tot % 60, f = function (x, y) { return x + ':' + (y < 10 ? '0' : '') + y; };
+  var ans = f(ah, am);
+  return G('reasoning', 'figure', 'A clock seen in a mirror appears to show <b>' + f(hh, mm) + '</b>. What is the actual time?',
+    choices(ans, [f(hh, mm), f(12 - hh || 12, mm), f(ah % 12 + 1, am), f(ah, (am + 30) % 60)]),
+    'Shortcut: subtract the mirror time from 11:60 (or from 12:00). 11:60 − ' + f(hh, mm) + ' = ' + ans + '. A mirror flips the clock left to right, so each hand points to the opposite side of the 12–6 line.');
+}
+var FIGS_E = [figRotation, figDot, figSides, figCount, figOdd, figAnalogy, figPunch, figCube];
+var FIGS_H = [figDual, figMatrix, figXor, figOddHard, figAnalogyHard, figPunch, figCube, figPaintCube, figMirrorClock];
 function figOne(L) { return (hardNow(L) ? pick(FIGS_H) : pick(FIGS_E))(); }
 function figSet(n, L) {
   L = L || lv();
@@ -510,7 +589,7 @@ function buildPractice(topic, n) {
 /* ---------- session ---------- */
 var S = null, pending = null, pendingType = null, timer = null;
 
-function view(html) { app.innerHTML = html; window.scrollTo(0, 0); app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); }
+function view(html) { app.innerHTML = html; if (window.lenis) lenis.scrollTo(0, { immediate: true, force: true }); else window.scrollTo(0, 0); app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); }
 function celebrate(it) {
   var ok = app.querySelector('.ch.ok'), bad = app.querySelector('.ch.bad');
   if (it.chosen !== 0) { if (bad) bad.classList.add('shake'); if (ok) ok.classList.add('reveal'); return; }
@@ -679,7 +758,9 @@ function choose(k) {
   if (S.instant) { it.locked = true; it.time += Date.now() - S.qStart; S.paused = true; settle(it); }
   renderQ(false);
   if (S.instant) celebrate(it);
-  var fb = document.getElementById('fb'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  var fb = document.getElementById('fb');
+  if (fb && window.lenis) { var r = fb.getBoundingClientRect(); if (r.bottom > innerHeight) lenis.scrollTo(fb, { offset: -(innerHeight - r.height - 24), duration: 0.8 }); }
+  else if (fb && fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 function next() {
   if (!S) return;
@@ -970,6 +1051,7 @@ window.addEventListener('beforeunload', function (e) { if (S) { e.preventDefault
 /* shared helpers for the lesson files */
 window.TP = { G: G, numOpts: numOpts, choices: choices, rnd: rnd, pick: pick, shuffle: shuffle, sample: sample, gcd: gcd, neg: neg, sgn: sgn, lv: lv, hardNow: hardNow,
   numSeries: numSeries, letterSeries: letterSeries, figOne: figOne, figSet: figSet, seqQ: seqQ, codedQ: codedQ, speedQ: speedQ, genSet: genSet, fromBank: fromBank, readingSets: readingSets,
+  foldNet: foldNet, NETS: NETS, figPunch: figPunch, figCube: figCube,
   glyph: glyph, dualFig: dualFig, lineFig: lineFig, mShape: mShape, dotFig: dotFig, QM: QM };
 
 home();
